@@ -4,6 +4,7 @@ using System.Collections;
 using UnityEditor;
 using System.Text;
 using System.Collections.Generic;
+using System.IO;
 
 /*=============================================================================
  |	    Project:  Unity3D Scene OBJ Exporter
@@ -24,8 +25,8 @@ public class OBJExporter : ScriptableWizard
     public bool applyPosition = true;
     public bool applyRotation = true;
     public bool applyScale = true;
-    public bool generateMaterials = true;
-    public bool exportTextures = true;
+    public bool generateMaterials = false;
+    public bool exportTextures = false;
     public bool splitObjects = true;
     public bool autoMarkTexReadable = false;
     public bool objNameAddIdNum = false;
@@ -178,15 +179,6 @@ public class OBJExporter : ScriptableWizard
             MeshFilter mf = sceneMeshes[i];
             MeshRenderer mr = sceneMeshes[i].gameObject.GetComponent<MeshRenderer>();
 
-            if (splitObjects)
-            {
-                string exportName = meshName;
-                if (objNameAddIdNum)
-                {
-                    exportName += "_" + i;
-                }
-                sb.AppendLine("g " + exportName);
-            }
             if(mr != null && generateMaterials)
             {
                 Material[] mats = mr.sharedMaterials;
@@ -249,18 +241,31 @@ public class OBJExporter : ScriptableWizard
                 sb.AppendLine("vt " + v.x + " " + v.y);
             }
 
+            if (splitObjects)
+            {
+                string exportName = meshName;
+                if (objNameAddIdNum)
+                {
+                    exportName += "_" + i;
+                }
+                sb.AppendLine("g " + exportName);
+            }
+
             for (int j=0; j < msh.subMeshCount; j++)
             {
-                if(mr != null && j < mr.sharedMaterials.Length)
+                if (generateMaterials)
                 {
-                    string matName = mr.sharedMaterials[j].name;
-                    sb.AppendLine("usemtl " + matName);
+                    if (mr != null && j < mr.sharedMaterials.Length)
+                    {
+                        string matName = mr.sharedMaterials[j].name;
+                        sb.AppendLine("usemtl " + matName);
+                    }
+                    else
+                    {
+                        sb.AppendLine("usemtl " + meshName + "_sm" + j);
+                    }
                 }
-                else
-                {
-                    sb.AppendLine("usemtl " + meshName + "_sm" + j);
-                }
-
+                
                 int[] tris = msh.GetTriangles(j);
                 for(int t = 0; t < tris.Length; t+= 3)
                 {
@@ -291,6 +296,7 @@ public class OBJExporter : ScriptableWizard
 
         //export complete, close progress dialog
         EditorUtility.ClearProgressBar();
+        EditorUtility.DisplayDialog("Succeed!", "Scene Objects has been exported to: " + Path.GetFullPath(exportPath), "OK");
     }
 
     string TryExportTexture(string propertyName,Material m)
