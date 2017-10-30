@@ -18,6 +18,46 @@ using System.IO;
  |     FOR THE USED PARTS OF THE CODE.
  |
  *===========================================================================*/
+/**
+ * 格式
+ * poly[0] v, vn, vt
+ * poly[1] v, vn, vt
+ * poly[2] v, vn, vt
+ * poly[3] v, vn, vt 可以有也可以没有
+ */
+public class polygon
+{
+    public List<triples> poly;
+    public polygon()
+    {
+        poly = new List<triples>();
+    }
+    public int getV(int index)
+    {
+        return poly[index % poly.Count].v;
+    }
+    public int getVN(int index)
+    {
+        return poly[index % poly.Count].vn;
+    }
+    public int getVT(int index)
+    {
+        return poly[index % poly.Count].vt;
+    }
+}
+
+public class triples
+{
+    public int v;
+    public int vn;
+    public int vt;
+    public triples(int _v, int _vn, int _vt)
+    {
+        v = _v;
+        vn = _vn;
+        vt = _vt;
+    }
+}
 
 public class OBJExporter : ScriptableWizard
 {
@@ -83,9 +123,123 @@ public class OBJExporter : ScriptableWizard
         return new Vector3(v1.x * v2.x, v1.y * v2.y, v1.z * v2.z);
     }
 
+    bool canMergePoint(polygon cur, polygon next, Dictionary<int, int> paramMerge, List<Vector3> verticesList)
+    {
+        bool res = false;
+        //是否有二个点共点，并且uv一样
+        if (cur.poly.Count == 4)
+        {
+            return res;
+        }
+        var curA = -1;
+        var curB = -1;
+        var nextA = -1;
+        var nextB = -1;
+        int i = 0, j = 0;
+        bool isSame = false;
+        for (i = 0; i < cur.poly.Count; ++i)
+        {
+            curA = cur.getV(i);
+            curB = cur.getV(i + 1);
+            for (j = 0; j < next.poly.Count; ++j)
+            {
+                nextA = next.getV(j);
+                nextB = next.getV(j + 1);
+                if (curA == nextB && curB == nextA)
+                {
+                    if (cur.getVT(i) == next.getVT(j + 1) && cur.getVT(i + 1) == next.getVT(j))
+                    {
+                        /*
+                     * 0    curIndex
+                     * 1    nextIndex
+                     * 2    deleteCount
+                     * 3    delete1
+                     * 4    delete2
+                     */
+                        paramMerge[0] = i;
+                        paramMerge[1] = j;
+                        isSame = true;
+                        break;
+                    }
+                }
+            }
+        }
+        //法向量是否平行
+        if (isSame)
+        {
+            /**
+             * 可能有方向不一样，不能合并，所以比较二个法向量
+             */
+            var curNor = getNormal(cur, verticesList);
+            var nexNor = getNormal(next, verticesList);
+            var test = curNor - nexNor;
+            if (test.magnitude < 0.001)
+            {
+                res = true;
+            }
+        }
+        if (cur.poly.Count == 3)
+        {
+            /**
+             * 删除二个点
+             */
+            paramMerge[2] = 2;
+        }
+        return res;
+    }
+
+    Vector3 getNormal(polygon cur, List<Vector3> verticesList)
+    {
+        Vector3 v1 = verticesList[cur.getV(1)] - verticesList[cur.getV(0)];
+        Vector3 v2 = verticesList[cur.getV(2)] - verticesList[cur.getV(1)];
+        Vector3 res = Vector3.Cross(v1, v2);
+        res.Normalize();
+        return res;
+    }
+
+    void mergePoint(polygon cur, polygon next, Dictionary<int, int> paramMerge)
+    {
+        cur.poly.Insert(paramMerge[0] + 1, next.poly[(paramMerge[1] + 2) % next.poly.Count]);
+    }
+
+    List<polygon> mergeTriples(List<polygon> list, List<Vector3> verticesList)
+    {
+        List<polygon> res = new List<polygon>();
+        int index = 0;
+        while (list.Count > 0)
+        {
+            polygon current = list[0];
+            list.RemoveAt(0);
+            for (int j = 0; j < list.Count;)
+            {
+                polygon tmp = list[j];
+                /*
+                 * 0    curIndex
+                 * 1    nextIndex
+                 * 2    delete1
+                 * 3    delete2
+                 */
+                Dictionary<int, int> paramMerge = new Dictionary<int, int>();
+
+                if (canMergePoint(current, tmp, paramMerge, verticesList))
+                {
+                    mergePoint(current, tmp, paramMerge);
+                    list.RemoveAt(j);
+                    break;//暂时不处理四边形
+                }
+                else
+                {
+                    j++;
+                }
+            }
+            res.Add(current);
+        }
+        return res;
+    }
+
     void OnWizardCreate()
     {
-        if(StaticBatchingEnabled() && Application.isPlaying)
+        if (StaticBatchingEnabled() && Application.isPlaying)
         {
             EditorUtility.DisplayDialog("Error", "Static batching is enabled. This will cause the export file to look like a mess, as well as be a large filesize. Disable this option, and restart the player, before continuing.", "OK");
             goto end;
@@ -93,7 +247,7 @@ public class OBJExporter : ScriptableWizard
         if (autoMarkTexReadable)
         {
             int yes = EditorUtility.DisplayDialogComplex("Warning", "This will convert all textures to Advanced type with the read/write option set. This is not reversible and will permanently affect your project. Continue?", "Yes", "No", "Cancel");
-            if(yes > 0)
+            if (yes > 0)
             {
                 goto end;
             }
@@ -108,7 +262,7 @@ public class OBJExporter : ScriptableWizard
             EditorPrefs.SetString("a4_OBJExport_lastPath", fi.Directory.FullName);
             Export(expFile);
         }
-        end:;
+    end:;
     }
 
     /**
@@ -120,7 +274,7 @@ public class OBJExporter : ScriptableWizard
         for (int i = 0; i < list.Count; ++i)
         {
             Vector3 tmp = list[i];
-            if (Mathf.Abs(tmp.x - v.x)<0.001 && Mathf.Abs(tmp.y - v.y) < 0.001 && Mathf.Abs(tmp.z - v.z) < 0.001)
+            if (Mathf.Abs(tmp.x - v.x) < 0.001 && Mathf.Abs(tmp.y - v.y) < 0.001 && Mathf.Abs(tmp.z - v.z) < 0.001)
             {
                 res = i;
                 break;
@@ -195,7 +349,7 @@ public class OBJExporter : ScriptableWizard
                 }
             }
         }
-        
+
         //work on export
         StringBuilder sb = new StringBuilder();
         StringBuilder sbMaterials = new StringBuilder();
@@ -217,10 +371,10 @@ public class OBJExporter : ScriptableWizard
             MeshFilter mf = sceneMeshes[i];
             MeshRenderer mr = sceneMeshes[i].gameObject.GetComponent<MeshRenderer>();
 
-            if(mr != null && generateMaterials)
+            if (mr != null && generateMaterials)
             {
                 Material[] mats = mr.sharedMaterials;
-                for(int j=0; j < mats.Length; j++)
+                for (int j = 0; j < mats.Length; j++)
                 {
                     Material m = mats[j];
                     if (!materialCache.ContainsKey(m.name))
@@ -258,10 +412,10 @@ public class OBJExporter : ScriptableWizard
                 {
                     v = MultiplyVec3s(v, mf.gameObject.transform.lossyScale);
                 }
-                
+
                 if (applyRotation)
                 {
-  
+
                     v = RotateAroundPoint(v, Vector3.zero, mf.gameObject.transform.rotation);
                 }
 
@@ -329,7 +483,7 @@ public class OBJExporter : ScriptableWizard
                 sb.AppendLine("g " + exportName);
             }
 
-            for (int j=0; j < msh.subMeshCount; j++)
+            for (int j = 0; j < msh.subMeshCount; j++)
             {
                 if (generateMaterials)
                 {
@@ -343,30 +497,43 @@ public class OBJExporter : ScriptableWizard
                         sb.AppendLine("usemtl " + meshName + "_sm" + j);
                     }
                 }
-                
+
                 int[] tris = msh.GetTriangles(j);
-                for(int t = 0; t < tris.Length; t+= 3)
+                List<polygon> triplesList = new List<polygon>();
+                for (int t = 0; t < tris.Length; t += 3)
                 {
-                    int vIdx2 = verticeIndexList[tris[t]] + 1 + lastVertexIndex;
-                    int vIdx1 = verticeIndexList[tris[t + 1]] + 1 + lastVertexIndex;
-                    int vIdx0 = verticeIndexList[tris[t + 2]] + 1 + lastVertexIndex;
-
-                    int vnIdx2 = normalIndexList[tris[t]] + 1 + lastVertexNormalsIndex;
-                    int vnIdx1 = normalIndexList[tris[t + 1]] + 1 + lastVertexNormalsIndex;
-                    int vnIdx0 = normalIndexList[tris[t + 2]] + 1 + lastVertexNormalsIndex;
-
-                    int vtIdx2 = uvIndexList[tris[t]] + 1 + lastTextureCoordsIndex;
-                    int vtIdx1 = uvIndexList[tris[t + 1]] + 1 + lastTextureCoordsIndex;
-                    int vtIdx0 = uvIndexList[tris[t + 2]] + 1 + lastTextureCoordsIndex;
-
-                    if (faceOrder < 0)
+                    polygon tri = new polygon();
+                    tri.poly.Add(new triples(verticeIndexList[tris[t]], normalIndexList[tris[t]], uvIndexList[tris[t]]));
+                    tri.poly.Add(new triples(verticeIndexList[tris[t + 1]], normalIndexList[tris[t + 1]], uvIndexList[tris[t + 1]]));
+                    tri.poly.Add(new triples(verticeIndexList[tris[t + 2]], normalIndexList[tris[t + 2]], uvIndexList[tris[t + 2]]));
+                    triplesList.Add(tri);
+                }
+                triplesList = mergeTriples(triplesList, verticeList);
+                for (int t = 0; t < triplesList.Count; ++t)
+                {
+                    if (triplesList[t].poly.Count == 3)
                     {
-                        sb.AppendLine("f " + ConstructOBJString2(vIdx2, vnIdx2, vtIdx2) + " " + ConstructOBJString2(vIdx1, vnIdx1, vtIdx1) + " " + ConstructOBJString2(vIdx0,vnIdx0, vtIdx0));
+                        if (faceOrder < 0)
+                        {
+                            sb.AppendLine("f " + ConstructOBJString2(triplesList[t].poly[2].v + 1 + lastVertexIndex, triplesList[t].poly[2].vn + 1 + lastVertexNormalsIndex, triplesList[t].poly[2].vt + 1 + lastTextureCoordsIndex) + " " + ConstructOBJString2(triplesList[t].poly[1].v + 1 + lastVertexIndex, triplesList[t].poly[1].vn + 1 + lastVertexNormalsIndex, triplesList[t].poly[1].vt + 1 + lastTextureCoordsIndex) + " " + ConstructOBJString2(triplesList[t].poly[0].v + 1 + lastVertexIndex, triplesList[t].poly[0].vn + 1 + lastVertexNormalsIndex, triplesList[t].poly[0].vt + 1 + lastTextureCoordsIndex));
+                        }
+                        else
+                        {
+                            sb.AppendLine("f " + ConstructOBJString2(triplesList[t].poly[0].v + 1 + lastVertexIndex, triplesList[t].poly[0].vn + 1 + lastVertexNormalsIndex, triplesList[t].poly[0].vt + 1 + lastTextureCoordsIndex) + " " + ConstructOBJString2(triplesList[t].poly[1].v + 1 + lastVertexIndex, triplesList[t].poly[1].vn + 1 + lastVertexNormalsIndex, triplesList[t].poly[1].vt + 1 + lastTextureCoordsIndex) + " " + ConstructOBJString2(triplesList[t].poly[2].v + 1 + lastVertexIndex, triplesList[t].poly[2].vn + 1 + lastVertexNormalsIndex, triplesList[t].poly[2].vt + 1 + lastTextureCoordsIndex));
+                        }
                     }
                     else
                     {
-                        sb.AppendLine("f " + ConstructOBJString2(vIdx0, vnIdx0, vtIdx0) + " " + ConstructOBJString2(vIdx1, vnIdx1, vtIdx1) + " " + ConstructOBJString2(vIdx2, vnIdx2, vtIdx2));
-                    } 
+                        if (faceOrder < 0)
+                        {
+                            sb.AppendLine("f " + ConstructOBJString2(triplesList[t].poly[3].v + 1 + lastVertexIndex, triplesList[t].poly[3].vn + 1 + lastVertexNormalsIndex, triplesList[t].poly[3].vt + 1 + lastTextureCoordsIndex) + " " + ConstructOBJString2(triplesList[t].poly[2].v + 1 + lastVertexIndex, triplesList[t].poly[2].vn + 1 + lastVertexNormalsIndex, triplesList[t].poly[2].vt + 1 + lastTextureCoordsIndex) + " " + ConstructOBJString2(triplesList[t].poly[1].v + 1 + lastVertexIndex, triplesList[t].poly[1].vn + 1 + lastVertexNormalsIndex, triplesList[t].poly[1].vt + 1 + lastTextureCoordsIndex) + " " + ConstructOBJString2(triplesList[t].poly[0].v + 1 + lastVertexIndex, triplesList[t].poly[0].vn + 1 + lastVertexNormalsIndex, triplesList[t].poly[0].vt + 1 + lastTextureCoordsIndex));
+                        }
+                        else
+                        {
+                            sb.AppendLine("f " + ConstructOBJString2(triplesList[t].poly[0].v + 1 + lastVertexIndex, triplesList[t].poly[0].vn + 1 + lastVertexNormalsIndex, triplesList[t].poly[0].vt + 1 + lastTextureCoordsIndex) + " " + ConstructOBJString2(triplesList[t].poly[1].v + 1 + lastVertexIndex, triplesList[t].poly[1].vn + 1 + lastVertexNormalsIndex, triplesList[t].poly[1].vt + 1 + lastTextureCoordsIndex) + " " + ConstructOBJString2(triplesList[t].poly[2].v + 1 + lastVertexIndex, triplesList[t].poly[2].vn + 1 + lastVertexNormalsIndex, triplesList[t].poly[2].vt + 1 + lastTextureCoordsIndex) + " " + ConstructOBJString2(triplesList[t].poly[3].v + 1 + lastVertexIndex, triplesList[t].poly[3].vn + 1 + lastVertexNormalsIndex, triplesList[t].poly[3].vt + 1 + lastTextureCoordsIndex));
+                        }
+                    }
+
                 }
             }
             lastVertexIndex += verticeList.Count;
@@ -386,12 +553,12 @@ public class OBJExporter : ScriptableWizard
         EditorUtility.DisplayDialog("Succeed!", "Scene Objects has been exported to: " + Path.GetFullPath(exportPath), "OK");
     }
 
-    string TryExportTexture(string propertyName,Material m)
+    string TryExportTexture(string propertyName, Material m)
     {
         if (m.HasProperty(propertyName))
         {
             Texture t = m.GetTexture(propertyName);
-            if(t != null)
+            if (t != null)
             {
                 return ExportTexture((Texture2D)t);
             }
@@ -467,7 +634,8 @@ public class OBJExporter : ScriptableWizard
             Color sc = m.GetColor("_SpecColor");
             sb.AppendLine("Ks " + sc.r.ToString() + " " + sc.g.ToString() + " " + sc.b.ToString());
         }
-        if (exportTextures) {
+        if (exportTextures)
+        {
             //diffuse
             string exResult = TryExportTexture("_MainTex", m);
             if (exResult != "false")
@@ -487,7 +655,7 @@ public class OBJExporter : ScriptableWizard
                 sb.AppendLine("map_Bump " + exResult);
             }
 
-    }
+        }
         sb.AppendLine("illum 2");
         return sb.ToString();
     }
