@@ -111,6 +111,42 @@ public class OBJExporter : ScriptableWizard
         end:;
     }
 
+    /**
+     * 线性查找 
+     */
+    int findVector3(Vector3 v, List<Vector3> list)
+    {
+        int res = -1;
+        for (int i = 0; i < list.Count; ++i)
+        {
+            Vector3 tmp = list[i];
+            if (Mathf.Abs(tmp.x - v.x)<0.001 && Mathf.Abs(tmp.y - v.y) < 0.001 && Mathf.Abs(tmp.z - v.z) < 0.001)
+            {
+                res = i;
+                break;
+            }
+        }
+        return res;
+    }
+
+    /**
+     * 线性查找 
+     */
+    int findVector2(Vector2 v, List<Vector2> list)
+    {
+        int res = -1;
+        for (int i = 0; i < list.Count; ++i)
+        {
+            Vector2 tmp = list[i];
+            if (Mathf.Abs(tmp.x - v.x) < 0.001 && Mathf.Abs(tmp.y - v.y) < 0.001)
+            {
+                res = i;
+                break;
+            }
+        }
+        return res;
+    }
+
     void Export(string exportPath)
     {
         //init stuff
@@ -170,8 +206,10 @@ public class OBJExporter : ScriptableWizard
             sb.AppendLine("mtllib " + baseFileName + ".mtl");
         }
         float maxExportProgress = (float)(sceneMeshes.Length + 1);
-        int lastIndex = 0;
-        for(int i = 0; i < sceneMeshes.Length; i++)
+        int lastVertexIndex = 0;
+        int lastVertexNormalsIndex = 0;
+        int lastTextureCoordsIndex = 0;
+        for (int i = 0; i < sceneMeshes.Length; i++)
         {
             string meshName = sceneMeshes[i].gameObject.name;
             float progress = (float)(i + 1) / maxExportProgress;
@@ -197,11 +235,25 @@ public class OBJExporter : ScriptableWizard
             //export the meshhh :3
             Mesh msh = mf.sharedMesh;
             int faceOrder = (int)Mathf.Clamp((mf.gameObject.transform.lossyScale.x * mf.gameObject.transform.lossyScale.z), -1, 1);
-            
+
             //export vector data (FUN :D)!
+            List<int> verticeIndexList = new List<int>();
+            List<Vector3> verticeList = new List<Vector3>();
             foreach (Vector3 vx in msh.vertices)
             {
                 Vector3 v = vx;
+                int realIndex = findVector3(v, verticeList);
+                if (realIndex == -1)
+                {
+                    verticeList.Add(v);
+                    verticeIndexList.Add(verticeList.Count - 1);
+                }
+                else
+                {
+                    verticeIndexList.Add(realIndex);
+                    continue;
+                }
+
                 if (applyScale)
                 {
                     v = MultiplyVec3s(v, mf.gameObject.transform.lossyScale);
@@ -220,10 +272,22 @@ public class OBJExporter : ScriptableWizard
                 v.x *= -1;
                 sb.AppendLine("v " + v.x + " " + v.y + " " + v.z);
             }
+            List<int> normalIndexList = new List<int>();
+            List<Vector3> normalList = new List<Vector3>();
             foreach (Vector3 vx in msh.normals)
             {
                 Vector3 v = vx;
-                
+                int realIndex = findVector3(v, normalList);
+                if (realIndex == -1)
+                {
+                    normalList.Add(v);
+                    normalIndexList.Add(normalList.Count - 1);
+                }
+                else
+                {
+                    normalIndexList.Add(realIndex);
+                    continue;
+                }
                 if (applyScale)
                 {
                     v = MultiplyVec3s(v, mf.gameObject.transform.lossyScale.normalized);
@@ -236,8 +300,22 @@ public class OBJExporter : ScriptableWizard
                 sb.AppendLine("vn " + v.x + " " + v.y + " " + v.z);
 
             }
+            List<int> uvIndexList = new List<int>();
+            List<Vector2> uvList = new List<Vector2>();
             foreach (Vector2 v in msh.uv)
             {
+                Vector2 vv = v;
+                int realIndex = findVector2(v, uvList);
+                if (realIndex == -1)
+                {
+                    uvList.Add(v);
+                    uvIndexList.Add(uvList.Count - 1);
+                }
+                else
+                {
+                    uvIndexList.Add(realIndex);
+                    continue;
+                }
                 sb.AppendLine("vt " + v.x + " " + v.y);
             }
 
@@ -269,22 +347,31 @@ public class OBJExporter : ScriptableWizard
                 int[] tris = msh.GetTriangles(j);
                 for(int t = 0; t < tris.Length; t+= 3)
                 {
-                    int idx2 = tris[t] + 1 + lastIndex;
-                    int idx1 = tris[t + 1] + 1 + lastIndex;
-                    int idx0 = tris[t + 2] + 1 + lastIndex;
-                    if(faceOrder < 0)
+                    int vIdx2 = verticeIndexList[tris[t]] + 1 + lastVertexIndex;
+                    int vIdx1 = verticeIndexList[tris[t + 1]] + 1 + lastVertexIndex;
+                    int vIdx0 = verticeIndexList[tris[t + 2]] + 1 + lastVertexIndex;
+
+                    int vnIdx2 = normalIndexList[tris[t]] + 1 + lastVertexNormalsIndex;
+                    int vnIdx1 = normalIndexList[tris[t + 1]] + 1 + lastVertexNormalsIndex;
+                    int vnIdx0 = normalIndexList[tris[t + 2]] + 1 + lastVertexNormalsIndex;
+
+                    int vtIdx2 = uvIndexList[tris[t]] + 1 + lastTextureCoordsIndex;
+                    int vtIdx1 = uvIndexList[tris[t + 1]] + 1 + lastTextureCoordsIndex;
+                    int vtIdx0 = uvIndexList[tris[t + 2]] + 1 + lastTextureCoordsIndex;
+
+                    if (faceOrder < 0)
                     {
-                        sb.AppendLine("f " + ConstructOBJString(idx2) + " " + ConstructOBJString(idx1) + " " + ConstructOBJString(idx0));
+                        sb.AppendLine("f " + ConstructOBJString2(vIdx2, vnIdx2, vtIdx2) + " " + ConstructOBJString2(vIdx1, vnIdx1, vtIdx1) + " " + ConstructOBJString2(vIdx0,vnIdx0, vtIdx0));
                     }
                     else
                     {
-                        sb.AppendLine("f " + ConstructOBJString(idx0) + " " + ConstructOBJString(idx1) + " " + ConstructOBJString(idx2));
-                    }
-                    
+                        sb.AppendLine("f " + ConstructOBJString2(vIdx0, vnIdx0, vtIdx0) + " " + ConstructOBJString2(vIdx1, vnIdx1, vtIdx1) + " " + ConstructOBJString2(vIdx2, vnIdx2, vtIdx2));
+                    } 
                 }
             }
-
-            lastIndex += msh.vertices.Length;
+            lastVertexIndex += verticeList.Count;
+            lastVertexNormalsIndex += normalList.Count;
+            lastTextureCoordsIndex += uvList.Count;
         }
 
         //write to disk
@@ -351,6 +438,12 @@ public class OBJExporter : ScriptableWizard
         string idxString = index.ToString();
         return idxString + "/" + idxString + "/" + idxString;
     }
+
+    private string ConstructOBJString2(int vertexIndex, int indexVN, int indexUV)
+    {
+        return vertexIndex.ToString() + "/" + indexUV.ToString() + "/" + indexVN.ToString();
+    }
+
     string MaterialToString(Material m)
     {
         StringBuilder sb = new StringBuilder();
