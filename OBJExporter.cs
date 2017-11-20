@@ -58,7 +58,6 @@ public class triples
         vt = _vt;
     }
 }
-
 public class OBJExporter : ScriptableWizard
 {
     public bool onlySelectedObjects = false;
@@ -78,13 +77,26 @@ public class OBJExporter : ScriptableWizard
 
     bool StaticBatchingEnabled()
     {
+        //static batching 可以参考https://answers.unity.com/questions/47377/how-to-programatically-enable-static-batching-in-t.html
+#if UNITY_4_0 || UNITY_4_0_1 || UNITY_4_1 || UNITY_4_2 || UNITY_4_3 || UNITY_4_5 || UNITY_4_6
+        //very slow see https://docs.unity3d.com/ScriptReference/Resources.FindObjectsOfTypeAll.html
+        UnityEditor.PlayerSettings[] playerSettings = Resources.FindObjectsOfTypeAll(typeof(UnityEditor.PlayerSettings)) as UnityEditor.PlayerSettings[];
+#else
         PlayerSettings[] playerSettings = Resources.FindObjectsOfTypeAll<PlayerSettings>();
+#endif
         if (playerSettings == null)
         {
             return false;
         }
+
         SerializedObject playerSettingsSerializedObject = new SerializedObject(playerSettings);
         SerializedProperty batchingSettings = playerSettingsSerializedObject.FindProperty("m_BuildTargetBatching");
+
+        if (batchingSettings == null)
+        {
+            return false;
+        }
+
         for (int i = 0; i < batchingSettings.arraySize; i++)
         {
             SerializedProperty batchingArrayValue = batchingSettings.GetArrayElementAtIndex(i);
@@ -575,7 +587,12 @@ public class OBJExporter : ScriptableWizard
                 var tImporter = AssetImporter.GetAtPath(assetPath) as TextureImporter;
                 if (tImporter != null)
                 {
+#if UNITY_4_0 || UNITY_4_0_1 || UNITY_4_1 || UNITY_4_2 || UNITY_4_3 || UNITY_4_5 || UNITY_4_6
+                    tImporter.textureType = TextureImporterType.Image;
+#else
                     tImporter.textureType = TextureImporterType.Default;
+#endif
+
 
                     if (!tImporter.isReadable)
                     {
